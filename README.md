@@ -44,12 +44,6 @@ npm install
 mkdir tokens
 ```
 
-> inside ./src
-
-```bash
-mkdir spamEmail
-```
-
 4. Set up environment variables:
    Create a `.env` file in the root directory:
 

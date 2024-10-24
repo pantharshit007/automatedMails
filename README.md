@@ -44,6 +44,12 @@ npm install
 mkdir tokens
 ```
 
+> inside ./src
+
+```bash
+mkdir spamEmail
+```
+
 4. Set up environment variables:
    Create a `.env` file in the root directory:
 
@@ -99,14 +105,30 @@ node src/script.js
 ## 📁 Project Structure (temp)
 
 ```
-├── src/
-│   └── index.ts
-├── dist/
+.
+├── README.md
 ├── credentials.json
-├── tokens/
+├── package-lock.json
+├── package.json
+├── src
+│   ├── ai
+│   │   └── analyzeEmail.ts
+│   ├── config
+│   │   └── config.ts
+│   ├── emailProcess
+│   │   └── email.ts
+│   ├── index.ts
+│   ├── last_processed.txt
+│   ├── script.js
+│   ├── spamEmail
+│   │   ├── ignore_patterns.json
+│   │   └── pattern.ts
+│   ├── types.ts
+│   └── utils.ts
+├── tokens
 │   └── token.json
-├── last_processed.txt
-└── ignore_patterns.json
+├── tsconfig.json
+└── tsconfig.tsbuildinfo
 ```
 
 > [!IMPORTANT]  

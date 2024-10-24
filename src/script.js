@@ -12,8 +12,8 @@ require('dotenv').config();
 
 // Gmail API configuration
 const SCOPES = ['https://www.googleapis.com/auth/gmail.modify'];
-const TOKEN_PATH = path.join(process.cwd(), 'token.json');
 const CREDENTIALS_PATH = path.join(process.cwd(), 'credentials.json');
+const TOKEN_PATH = path.join(process.cwd(), 'tokens', 'token.json');
 
 // Gemini AI configuration
 const apiKey = process.env.GEMINI_API_KEY;
@@ -28,6 +28,8 @@ const generationConfig = {
 };
 
 const CHECK_POST_CURRENT_TIME = false;
+const MAX_MAIL = 2;
+const SENDERS_NAME = `Jethiya`
 
 // Gmail authentication functions
 async function loadSavedCredentialsIfExist() {
@@ -69,25 +71,26 @@ async function authorize() {
 }
 
 // Function to analyze email content using Gemini AI
-async function analyzeEmail(emailContent) {
+async function analyzeEmail(emailContent, from, to) {
     const prompt = `
-    Analyze the following email content and provide:
-    1. A suggested label (choose from: Interested, Not Interested, More Information)
-    2. A draft response based on the following rules (keep it small):
-       - If they show interest, suggest a demo call with specific time slots
-       - If they need more information, provide relevant details
-       - If not interested, send a polite acknowledgment
-    
-    Email content:
-    ${emailContent}
+        Analyze the following email content and provide:
+        1. A suggested label (choose from: Interested, Not Interested, More Information)
+        2. A draft response (keep it small) based on the following rules:
+        - If they show interest, suggest a demo call with specific time slots
+        - If they need more information, provide relevant details
+        - If not interested, send a polite acknowledgment
+        
+        From: ${from}
+        To: ${SENDERS_NAME || to}
+        Email content: ${emailContent}
 
-    Respond in JSON format:
-    {
-      "label": "chosen_label",
-      "analysis": "brief explanation of why this label was chosen",
-      "suggested_response": "complete response text"
-    }
-  `;
+        Respond in JSON format:
+        {
+        "label": "chosen_label",
+        "analysis": "brief explanation of why this label was chosen",
+        "suggested_response": "complete response text"
+        }
+    `;
 
     const chatSession = model.startChat({
         generationConfig,
@@ -95,8 +98,19 @@ async function analyzeEmail(emailContent) {
     });
 
     const result = await chatSession.sendMessage(prompt);
-    console.log('> AI Response:', result.response.text());
-    return JSON.parse(result.response.text());
+    const responseText = result.response.text()
+        .replace(/^[\s\S]*?{/, '{')
+        .replace(/}[\s\S]*$/, '}')
+    // .trim();
+    console.log("→ Analyze Result:", result.response.usageMetadata);
+    // console.log('→ AI Response:', responseText);
+
+    try {
+        return JSON.parse(responseText);
+    } catch (error) {
+        console.error('JSON parsing error:', responseText);
+        throw new Error('Failed to parse AI response as JSON');
+    }
 }
 
 // Function to create or get Gmail label
@@ -181,6 +195,7 @@ function shouldIgnoreEmail(emailFrom) {
         'yes-reply',
         'hello',
         'informer',
+        'alexis',
         'info@',
         'daily.dev',
         'duolingo.com',
@@ -188,7 +203,9 @@ function shouldIgnoreEmail(emailFrom) {
         'freelancer.com',
         'beefree.io',
         'vercel.com',
-        'disqus.com'
+        'disqus.com',
+        'careerservices.com',
+        'wellfound.com'
     ];
 
     // Convert email to lowercase for case-insensitive matching
@@ -235,7 +252,7 @@ async function processNewEmails(auth) {
         const res = await gmail.users.messages.list({
             userId: 'me',
             q: query,
-            maxResults: 10
+            maxResults: MAX_MAIL
         });
 
         if (!res.data.messages) {
@@ -259,6 +276,7 @@ async function processNewEmails(auth) {
             // Extract sender email and subject
             const headers = email.data.payload.headers;
             const from = headers.find(header => header.name === 'From')?.value || '';
+            const to = headers.find(header => header.name === 'To')?.value || '';
             const subject = headers.find(header => header.name === 'Subject')?.value || '(no subject)';
 
             console.log(`\nProcessing email from: ${from}`);
@@ -277,11 +295,12 @@ async function processNewEmails(auth) {
                     },
                 });
 
-                continue; // Skip to next email
+                continue;
             }
 
             // Extract email content
             let emailContent = '';
+            let content = ''
             if (email.data.payload.parts) {
                 // Handle multipart messages
                 for (const part of email.data.payload.parts) {
@@ -299,10 +318,12 @@ async function processNewEmails(auth) {
                 continue;
             }
 
+            console.log(`\nemail: ${content}}`);
+
             try {
                 // Analyze email using AI
                 console.log('→ Analyzing content with AI...');
-                const analysis = await analyzeEmail(emailContent);
+                const analysis = await analyzeEmail(emailContent, from, to);
 
                 // Get or create label
                 const labelId = await getOrCreateLabel(auth, analysis.label);
@@ -322,6 +343,7 @@ async function processNewEmails(auth) {
 
                 console.log('→ Successfully processed email');
                 console.log('→ Analysis:', analysis);
+                console.log('\n--- Waiting for new Email analysis.. ---');
             } catch (error) {
                 console.error('→ Error processing this email:', error.message);
                 continue; // Skip to next email if there's an error
@@ -377,21 +399,24 @@ async function main() {
     }
 
     try {
+        //! contains google secrets 
         const auth = await authorize();
 
         // Process emails every 2 minutes
         const INTERVAL = 2 * 60 * 1000; // 2 minutes
 
-        console.log('> worker started...');
+        console.log('\n> Worker started...');
         console.log('> Checking for new emails every 2 minutes');
 
         // Initial processing
         await processNewEmails(auth);
+        console.log('\n--- New Analysis in every 2 minutes ---');
 
         // Set up interval for continued processing
         const intervalId = setInterval(async () => {
             console.log('\n--- Checking for new emails ---');
             await processNewEmails(auth);
+            console.log('\n--- New Analysis in every 2 minutes ---');
         }, INTERVAL);
 
         setTimeout(() => {
@@ -399,11 +424,17 @@ async function main() {
             console.log('> Worker stopped after 5 minutes.');
         }, 5 * 60 * 1000);
 
+
     } catch (error) {
         console.error('Fatal error:', error);
         process.exit(1);
     }
 }
+
+process.on('SIGINT', () => {
+    console.log('\n> Worker stopped!');
+    process.exit();
+});
 
 process.on('unhandledRejection', (error) => {
     console.error('Unhandled rejection:', error);
